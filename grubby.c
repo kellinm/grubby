@@ -2191,64 +2191,121 @@ void markRemovedImage(struct grubConfig * cfg, const char * image,
 	entry->skip = 1;
 }
 
-void setDefaultImage(struct grubConfig * config, int isUserSpecifiedKernelPath, 
-		     const char * defaultKernelPath, int newBootEntryIsDefault,
-		     const char * prefix, int flags, int newDefaultBootEntryIndex) {
-    struct singleEntry * entry, * entry2, * newDefault;
-    int i, j;
+void setDefaultImage(struct grubConfig *config, int isAddingBootEntry,
+		     const char *defaultKernelPath, int newBootEntryIsDefault,
+		     const char *prefix, int flags,
+		     int newDefaultBootEntryIndex) {
+	struct singleEntry *bootEntry, *newDefault;
+	int indexToVerify, firstKernelEntryIndex, currentLookupIndex;
 
-    if (newBootEntryIsDefault) {
-	config->defaultImage = FIRST_ENTRY_INDEX;
-	return;
-    } else if ((newDefaultBootEntryIndex >= 0) && config->cfi->defaultIsIndex) {
-	if (findEntryByIndex(config, newDefaultBootEntryIndex))
-	    config->defaultImage = newDefaultBootEntryIndex;
-	else
-	    config->defaultImage = NO_DEFAULT_ENTRY;
-	return;
-    } else if (defaultKernelPath) {
-	i = 0;
-	if (findEntryByPath(config, defaultKernelPath, prefix, &i)) {
-	    config->defaultImage = i;
+	/* handle the two cases where the user explictly picks the default
+	 * boot entry index as it would exist post-modification */
+
+	/* Case 1: user chose to make the latest boot entry the default */
+	if (newBootEntryIsDefault) {
+		config->defaultImage = FIRST_ENTRY_INDEX;
+		return;
+	}
+
+	/* Case 2: user picked an arbitrary index as the default boot entry */
+	if (newDefaultBootEntryIndex >= FIRST_ENTRY_INDEX
+	    && config->cfi->defaultIsIndex) {
+		indexToVerify = newDefaultBootEntryIndex;
+
+		/* user chose to make latest boot entry the default */
+		if (newDefaultBootEntryIndex == FIRST_ENTRY_INDEX) {
+			config->defaultImage = FIRST_ENTRY_INDEX;
+			return;
+		}
+
+		/* the user picks the default index based on the
+		 * order of the bootloader configuration after
+		 * modification; ensure we are checking for the
+		 * existence of the correct entry */
+		if (FIRST_ENTRY_INDEX < newDefaultBootEntryIndex) {
+			if (!config->isModified)
+				indexToVerify--;
+		}
+
+		/* verify the user selected index will exist */
+		if (findEntryByIndex(config, indexToVerify)) {
+			config->defaultImage = newDefaultBootEntryIndex;
+		} else {
+			config->defaultImage = NO_DEFAULT_ENTRY;
+		}
+
+		return;
+	}
+
+	/* handle cases where the index value may shift */
+
+	/* check validity of existing default or first-entry-found
+	   selection */
+	if (defaultKernelPath) {
+		/* user requested first-entry-found */
+		if (!findEntryByPath(config, defaultKernelPath,
+				     prefix, &firstKernelEntryIndex)) {
+			/* don't change default if can't find match */
+			config->defaultImage = NO_DEFAULT_ENTRY;
+			return;
+		}
+
+		config->defaultImage = firstKernelEntryIndex;
+
+		/* this is where we start looking for decrement later */
+		currentLookupIndex = config->defaultImage;
+
+		if (isAddingBootEntry && !config->isModified &&
+		    (FIRST_ENTRY_INDEX < config->defaultImage)) {
+			/* increment because new entry added before default */
+			config->defaultImage++;
+		}
 	} else {
-	    config->defaultImage = NO_DEFAULT_ENTRY;
-	    return;
+		/* use pre-existing default entry */
+		currentLookupIndex = config->defaultImage;
+
+		if (isAddingBootEntry
+		    && (FIRST_ENTRY_INDEX <= config->defaultImage)) {
+			config->defaultImage++;
+
+			if (config->isModified) {
+				currentLookupIndex++;
+			}
+		}
 	}
-    } 
 
-    /* defaultImage now points to what we'd like to use, but before any order 
-       changes */
-    if ((config->defaultImage == DEFAULT_SAVED) ||
-	(config->defaultImage == DEFAULT_SAVED_GRUB2))
-      /* default is set to saved, we don't want to change it */
-      return;
+	/* sanity check - is this entry index valid? */
+	bootEntry = findEntryByIndex(config, currentLookupIndex);
 
-    if (config->defaultImage >= FIRST_ENTRY_INDEX) 
-	entry = findEntryByIndex(config, config->defaultImage);
-    else
-	entry = NULL;
+	if ((bootEntry && bootEntry->skip) || !bootEntry) {
+		/* entry is to be skipped or is invalid */
+		if (isAddingBootEntry) {
+			config->defaultImage = FIRST_ENTRY_INDEX;
+			return;
+		}
+		newDefault =
+		    findTemplate(config, prefix, &config->defaultImage, 1,
+				 flags);
+		if (!newDefault) {
+			config->defaultImage = NO_DEFAULT_ENTRY;
+		}
 
-    if (entry && !entry->skip) {
-	/* we can preserve the default */
-	if (isUserSpecifiedKernelPath)
-	    config->defaultImage++;
-	
-	/* count the number of entries erased before this one */
-	for (j = 0; j < config->defaultImage; j++) {
-	    entry2 = findEntryByIndex(config, j);
-	    if (entry2->skip) config->defaultImage--;
+		return;
 	}
-    } else if (isUserSpecifiedKernelPath) {
-	config->defaultImage = FIRST_ENTRY_INDEX;
-    } else {
-	/* Either we just erased the default (or the default line was bad
-	 * to begin with) and didn't put a new one in. We'll use the first
-	 * valid image. */
-	newDefault = findTemplate(config, prefix, &config->defaultImage, 1,
-				  flags);
-	if (!newDefault)
-	    config->defaultImage = NO_DEFAULT_ENTRY;
-    }
+
+	currentLookupIndex--;
+
+	/* decrement index by the total number of entries deleted */
+
+	for (indexToVerify = currentLookupIndex;
+	     indexToVerify >= FIRST_ENTRY_INDEX; indexToVerify--) {
+
+		bootEntry = findEntryByIndex(config, indexToVerify);
+
+		if (bootEntry && bootEntry->skip) {
+			config->defaultImage--;
+		}
+	}
 }
 
 void setFallbackImage(struct grubConfig * config, int hasNew) {
