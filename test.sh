@@ -555,6 +555,12 @@ if [ "$testgrub2" == "y" ]; then
         --boot-filesystem=/boot --add-kernel=/boot/vmlinuz-foo \
         --copy-default --title 'Red Hat Enterprise Linux Server' \
         --args=root=/dev/mapper/foo--
+    grub2Test grub2.19 remove/g2.19 --env grubenv.4 \
+        --remove-kernel=/boot/vmlinuz-2.6.38.2-9.fc15.x86_64 \
+        --boot-filesystem=/boot/
+    commandTest "saved_default output" \
+        "grub2-editenv test/grub2-support_files/env_temp list" \
+        "saved_entry=Linux, with Fedora 2.6.38.8-32.fc15.x86_64"
 
     testing="GRUB2 add initrd"
     grub2Test grub2.2 add/g2-1.4 --update-kernel=/boot/new-kernel.img \
