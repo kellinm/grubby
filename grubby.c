@@ -2782,7 +2782,7 @@ void setFallbackImage(struct grubConfig *config, int hasNew)
 	}
 }
 
-void displayEntry(struct singleEntry *entry, const char *prefix, int index)
+void displayEntry(struct grubConfig *config, struct singleEntry *entry, const char *prefix, int index)
 {
 	struct singleLine *line;
 	char *root = NULL;
@@ -2877,7 +2877,14 @@ void displayEntry(struct singleEntry *entry, const char *prefix, int index)
 
 	line = getLineByType(LT_TITLE, entry->lines);
 	if (line) {
-		printf("title=%s\n", line->elements[1].item);
+                char *entryTitle;
+                /* if we can extractTitle, then it's a zipl config and
+                 * if not then we go ahead with what's existed prior */
+                entryTitle = extractTitle(config, line);
+                if (!entryTitle) {
+                    entryTitle=line->elements[1].item;
+                }
+		printf("title=%s\n", entryTitle);
 	} else {
 		char *title;
 		line = getLineByType(LT_MENUENTRY, entry->lines);
@@ -3277,11 +3284,11 @@ int displayInfo(struct grubConfig *config, char *kernel, const char *prefix)
 			printf("lba\n");
 	}
 
-	displayEntry(entry, prefix, i);
+	displayEntry(config, entry, prefix, i);
 
 	i++;
 	while ((entry = findEntryByPath(config, kernel, prefix, &i))) {
-		displayEntry(entry, prefix, i);
+		displayEntry(config, entry, prefix, i);
 		i++;
 	}
 
